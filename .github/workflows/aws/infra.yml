@@ -1,0 +1,108 @@
+name: Reusable Infrastructure Workflow
+on:
+  workflow_call:
+    inputs:
+      provider:
+        required: false
+        type: string
+        default: terraform
+        description: "terraform or aws"
+      terraform_dir:
+        required: false
+        type: string
+        default: ./infra
+      terraform_action:
+        required: false
+        type: string
+        default: apply
+        description: "plan, apply, destroy"
+      auto_approve:
+        required: false
+        type: boolean
+        default: true
+      aws_command:
+        required: false
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+    outputs:
+      terraform_output:
+        description: "Terraform output in JSON (if terraform used)"
+        value: ${{ jobs.infra.outputs.terraform_output }}
+
+jobs:
+  infra:
+    runs-on: ubuntu-latest
+    outputs:
+      terraform_output: ${{ steps.tf-output.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        if: ${{ inputs.provider == 'terraform' || inputs.provider == 'aws' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        run: |
+          if [ -n "$AWS_ACCESS_KEY_ID" ]; then
+            aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
+          fi
+          if [ -n "$AWS_SECRET_ACCESS_KEY" ]; then
+            aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
+          fi
+          aws configure set region "${{ inputs.aws_region }}"
+
+      - name: Terraform - Setup
+        if: ${{ inputs.provider == 'terraform' }}
+        uses: hashicorp/setup-terraform@v2
+
+      - name: Terraform Init
+        if: ${{ inputs.provider == 'terraform' }}
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform init -input=false
+
+      - name: Terraform Plan
+        if: ${{ inputs.provider == 'terraform' && (inputs.terraform_action == 'plan' || inputs.terraform_action == 'apply') }}
+        working-directory: ${{ inputs.terraform_dir }}
+        run: terraform plan -input=false -no-color
+
+      - name: Terraform Apply
+        if: ${{ inputs.provider == 'terraform' && inputs.terraform_action == 'apply' }}
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform apply -input=false $( if [ "${{ inputs.auto_approve }}" = "true" ]; then echo "-auto-approve"; fi ) -no-color
+
+      - name: Terraform Destroy
+        if: ${{ inputs.provider == 'terraform' && inputs.terraform_action == 'destroy' }}
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          terraform destroy -input=false $( if [ "${{ inputs.auto_approve }}" = "true" ]; then echo "-auto-approve"; fi ) -no-color
+
+      - name: Capture Terraform Output
+        id: tf-output
+        if: ${{ inputs.provider == 'terraform' }}
+        working-directory: ${{ inputs.terraform_dir }}
+        run: |
+          set -e
+          if terraform output -json > /tmp/tf-output.json; then
+            cat /tmp/tf-output.json
+            echo "value<<EOF" >> $GITHUB_OUTPUT
+            cat /tmp/tf-output.json >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "value={}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run AWS CLI Command
+        if: ${{ inputs.provider == 'aws' }}
+        run: |
+          set -e
+          echo "Running AWS command: ${{ inputs.aws_command }}"
+          sh -lc "${{ inputs.aws_command }}"

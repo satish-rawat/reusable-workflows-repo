@@ -1,0 +1,103 @@
+name: Reusable Deploy Workflow
+on:
+  workflow_call:
+    inputs:
+      run_push:
+        required: false
+        type: boolean
+        default: true
+      run_infra:
+        required: false
+        type: boolean
+        default: true
+      # Push image inputs
+      image_name:
+        required: false
+        type: string
+      dockerfile_path:
+        required: false
+        type: string
+        default: Dockerfile
+      image_tag:
+        required: false
+        type: string
+        default: latest
+      push_to:
+        required: false
+        type: string
+        default: ecr
+      ecr_registry:
+        required: false
+        type: string
+      ecr_repository:
+        required: false
+        type: string
+      aws_region:
+        required: false
+        type: string
+        default: us-east-1
+      # Infra inputs
+      provider:
+        required: false
+        type: string
+        default: terraform
+      terraform_dir:
+        required: false
+        type: string
+        default: ./iac
+      terraform_action:
+        required: false
+        type: string
+        default: apply
+      auto_approve:
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      AWS_ACCESS_KEY_ID:
+        required: false
+      AWS_SECRET_ACCESS_KEY:
+        required: false
+      DOCKER_USERNAME:
+        required: false
+      DOCKER_PASSWORD:
+        required: false
+    outputs:
+      image_uri:
+        description: "Image pushed (if push ran)"
+        value: ${{ jobs.push.outputs.image_uri }}
+      terraform_output:
+        description: "Terraform output (if infra ran)"
+        value: ${{ jobs.infra.outputs.terraform_output }}
+
+jobs:
+  push:
+    if: ${{ inputs.run_push }}
+    uses: ./.github/workflows/push_image.yml
+    with:
+      image_name: ${{ inputs.image_name }}
+      dockerfile_path: ${{ inputs.dockerfile_path }}
+      image_tag: ${{ inputs.image_tag }}
+      push_to: ${{ inputs.push_to }}
+      ecr_registry: ${{ inputs.ecr_registry }}
+      ecr_repository: ${{ inputs.ecr_repository }}
+      aws_region: ${{ inputs.aws_region }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+  infra:
+    needs: push
+    if: ${{ inputs.run_infra }}
+    uses: ./.github/workflows/aws/infra.yml
+    with:
+      provider: ${{ inputs.provider }}
+      terraform_dir: ${{ inputs.terraform_dir }}
+      terraform_action: ${{ inputs.terraform_action }}
+      auto_approve: ${{ inputs.auto_approve }}
+      aws_region: ${{ inputs.aws_region }}
+    secrets:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
