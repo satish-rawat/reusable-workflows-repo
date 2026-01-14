@@ -1,0 +1,33 @@
+name: Reusable Build Workflow
+on:
+  workflow_call:
+    inputs:
+      image_name:
+        required: true
+        type: string
+      dockerfile_path:
+        required: false
+        type: string
+        default: "Dockerfile"
+      image_tag:
+        required: false
+        type: string
+        default: "latest"
+    outputs:
+      image_tag:
+        description: "The generated image tag"
+        value: ${{ jobs.build.outputs.tag }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.vars.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set Image Tag
+        id: vars
+        run: echo "tag=${{ github.sha }}" >> $GITHUB_OUTPUT
+      - name: Build Docker Image
+        run: |
+          docker build -t ${{ inputs.image_name }}:${{ inputs.image_tag }} -f ${{ inputs.dockerfile_path }} .
